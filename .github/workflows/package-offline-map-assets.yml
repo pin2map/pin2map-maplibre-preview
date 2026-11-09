@@ -47,9 +47,12 @@ jobs:
           cp -a upstream-assets/fonts output/assets/fonts
           mkdir -p output/assets/sprites/v4
           cp upstream-assets/sprites/v4/light* output/assets/sprites/v4/
-          if test -f upstream-assets/sprites/LICENSE.txt; then
-            cp upstream-assets/sprites/LICENSE.txt output/assets/sprites/
-          fi
+          # Noto Sans glyphs ship with the original OFL license.
+          test -s upstream-assets/fonts/OFL.txt
+          test -s output/assets/fonts/OFL.txt
+          # The upstream README records the sprite provenance. A separate
+          # sprites/LICENSE.txt is not present in the upstream repository.
+          cp upstream-assets/README.md output/assets/UPSTREAM-CREDITS.md
           git -C upstream-assets rev-parse HEAD > output/assets/upstream-basemap-assets-commit.txt
           test -s 'output/assets/fonts/Noto Sans Regular/0-255.pbf'
           test -s 'output/assets/fonts/Noto Sans Medium/0-255.pbf'
