@@ -63,7 +63,7 @@ def main() -> None:
     # must be hosted together under the same origin.
     js = js.replace(
         'const $=id=>document.getElementById(id);',
-        'maplibregl.setWorkerUrl(new URL("./vendor/maplibre-gl-worker.mjs", import.meta.url).href);\\n'
+        'maplibregl.setWorkerUrl(new URL("./vendor/maplibre-gl-worker.mjs", import.meta.url).href);\n'
         'const $=id=>document.getElementById(id);',
         1)
     if 'maplibregl.setWorkerUrl(' not in js:
