@@ -24,10 +24,20 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
-      - name: Install pinned PMTiles CLI
+      - name: Install and verify pinned PMTiles CLI
+        shell: bash
         run: |
+          set -euo pipefail
           go install github.com/protomaps/go-pmtiles@v1.31.2
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          BIN="$(go env GOPATH)/bin"
+          # 'go install' uses the Go command package name (go-pmtiles), while
+          # official release binaries and all CLI docs use the name 'pmtiles'.
+          if [[ -x "$BIN/go-pmtiles" && ! -e "$BIN/pmtiles" ]]; then
+            ln -s "$BIN/go-pmtiles" "$BIN/pmtiles"
+          fi
+          test -x "$BIN/pmtiles"
+          "$BIN/pmtiles" version
+          echo "$BIN" >> "$GITHUB_PATH"
       - name: Read and extract limited Stuttgart region
         shell: bash
         env:
