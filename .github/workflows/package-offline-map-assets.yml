@@ -57,7 +57,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m py_compile scripts/assemble-offline-lab.py
           python3 scripts/assemble-offline-lab.py
+          # Ensure a valid content-addressed cache, directory offline
+          # navigation and a registration limited to the lab subpath.
+          python3 - <<'PY'
+          from pathlib import Path
+          sw=Path("output/offline-stuttgart-sw.js").read_text()
+          registration=Path("output/offline-register.js").read_text()
+          html=Path("output/index.html").read_text()
+          assert 'const VERSION="pin2map-stuttgart-lab-' in sw
+          assert 'event.request.mode==="navigate"' in sw
+          assert 'cache.match("./index.html")' in sw
+          assert 'url.origin!==self.location.origin' in sw
+          assert '"/offline-stuttgart-lab/"' in registration
+          assert "offline-stuttgart-sw.js" in registration
+          assert 'https://unpkg.com' not in html
+          assert 'https://protomaps.github.io' not in html
+          assert ".pmtiles" not in sw
+          print("Offline worker scope, navigation and local resource checks: OK")
+          PY
           node --check output/pmtiles-persistent-lab-v1.js
           node --check output/pmtiles-persistent-store-v1.js
           node --check output/offline-stuttgart-sw.js
