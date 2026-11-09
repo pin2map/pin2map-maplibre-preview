@@ -1,0 +1,107 @@
+name: Build Stuttgart PMTiles high detail z15 (isolated)
+
+on:
+  push:
+    paths:
+      - .github/workflows/build-stuttgart-detailed-pmtiles.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stuttgart-pmtiles-detailed-cutout
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Install and verify pinned PMTiles CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/protomaps/go-pmtiles@v1.31.2
+          BIN="$(go env GOPATH)/bin"
+          # 'go install' uses the Go command package name (go-pmtiles), while
+          # official release binaries and all CLI docs use the name 'pmtiles'.
+          if [[ -x "$BIN/go-pmtiles" && ! -e "$BIN/pmtiles" ]]; then
+            ln -s "$BIN/go-pmtiles" "$BIN/pmtiles"
+          fi
+          test -x "$BIN/pmtiles"
+          "$BIN/pmtiles" version
+          echo "$BIN" >> "$GITHUB_PATH"
+      - name: Read and extract limited Stuttgart region
+        shell: bash
+        env:
+          SOURCE_URL: https://data.source.coop/protomaps/openstreetmap/v4.pmtiles
+          BBOX: '9.12,48.72,9.25,48.82'
+          MAX_ZOOM: '15'
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          pmtiles show "$SOURCE_URL" --header-json > output/source-header.json
+          pmtiles extract "$SOURCE_URL" output/stuttgart-z15.pmtiles --bbox="$BBOX" --maxzoom="$MAX_ZOOM" --download-threads=4
+          pmtiles verify output/stuttgart-z15.pmtiles
+          pmtiles show output/stuttgart-z15.pmtiles --header-json > output/stuttgart-header.json
+          pmtiles show output/stuttgart-z15.pmtiles --metadata > output/stuttgart-metadata.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os
+          p=Path("output/stuttgart-z15.pmtiles")
+          size=p.stat().st_size
+          header=json.loads(Path("output/stuttgart-header.json").read_text())
+          metadata=json.loads(Path("output/stuttgart-metadata.json").read_text())
+          if not 127 <= size <= 200 * 1024 * 1024:
+              raise SystemExit("Extract outside conservative test bounds (128 B–200 MiB)")
+          if header.get("tile_type") != "mvt":
+              raise SystemExit(f"Not an MVT vector tileset: {header.get('tile_type')}")
+          minzoom=int(header["minzoom"]); maxzoom=int(header["maxzoom"])
+          if not (0 <= minzoom <= maxzoom == 15):
+              raise SystemExit(f"Unexpected zoom bounds: {minzoom}–{maxzoom}")
+          west,south,east,north=map(float,header["bounds"])
+          if not (west < east and south < north and west < 9.25 and east > 9.12
+                  and south < 48.82 and north > 48.72):
+              raise SystemExit(f"Extract does not overlap Stuttgart bbox: {header['bounds']}")
+          if not isinstance(metadata,dict):
+              raise SystemExit("Invalid metadata JSON")
+          with p.open("rb") as stream:
+              digest=hashlib.file_digest(stream,"sha256").hexdigest()
+          Path("output/SHA256SUMS").write_text(f"{digest}  {p.name}\n")
+          Path("output/README.txt").write_text(
+              "Test cutout: Stuttgart center, bbox 9.12,48.72,9.25,48.82, maxzoom 15\n"
+              "Source: https://data.source.coop/protomaps/openstreetmap/v4.pmtiles\n"
+              "License: ODbL Produced Work, attribution to OpenStreetMap contributors\n"
+              "This artifact is NOT deployed to GitHub Pages, NOT offline-ready.\n")
+          report=[
+              "## Stuttgart PMTiles extraction",
+              "",
+              "| Validation | Result |",
+              "|---|---|",
+              f"| Archive | `{p.name}` |",
+              f"| Size | {size:,} bytes ({size/1024/1024:.2f} MiB) |",
+              f"| Format | {header['tile_type']} |",
+              f"| Zoom levels | {minzoom}–{maxzoom} |",
+              f"| Bounds (W,S,E,N) | {west:.5f}, {south:.5f}, {east:.5f}, {north:.5f} |",
+              f"| SHA-256 | `{digest}` |",
+              "| PMTiles verify | Passed |",
+              "| Publication | **Not published**: Actions artifact only |",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as summary:
+              summary.write("\n".join(report)+"\n")
+          print("\n".join(report))
+          PY
+      - name: Upload checked PMTiles archive as short-lived artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stuttgart-pmtiles-z15
+          path: output/
+          if-no-files-found: error
+          retention-days: 14
