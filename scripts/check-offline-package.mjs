@@ -27,6 +27,8 @@ for(const entry of [
  "./pmtiles-persistent-store-v1.js",
  "./offline-register.js",
  "./vendor/maplibre-gl.mjs",
+ "./vendor/maplibre-gl-worker.mjs",
+ "./vendor/maplibre-gl-shared.mjs",
  "./vendor/maplibre-gl.css",
  "./vendor/pmtiles.js",
  "./vendor/basemaps.js",
@@ -49,6 +51,7 @@ for(const source of [html,js]){
 }
 assert.match(html,/\.\/vendor\/maplibre-gl\.css/);
 assert.match(js,/\.\/vendor\/maplibre-gl\.mjs/);
+assert.match(js,/maplibregl\.setWorkerUrl\(new URL\("\.\/vendor\/maplibre-gl-worker\.mjs"/);
 assert.match(js,/\.\/assets\/fonts\/\{fontstack\}\/\{range\}\.pbf/);
 assert.match(js,/\.\/assets\/sprites\/v4\/light/);
 for(const [rel,info] of Object.entries(manifest.resources)){
