@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/package-offline-map-assets.yml
       - scripts/assemble-offline-lab.py
+      - scripts/check-offline-package.mjs
       - pmtiles-persistent-lab-v1.html
       - pmtiles-persistent-lab-v1.js
       - pmtiles-persistent-store-v1.js
@@ -85,6 +86,7 @@ jobs:
           node --check output/offline-stuttgart-sw.js
           node --check output/offline-register.js
           test -s output/manifest.json
+          node scripts/check-offline-package.mjs output
           ! grep -E 'https://(unpkg.com|protomaps.github.io)' output/index.html output/pmtiles-persistent-lab-v1.js
       - name: Upload versioned resource package
         uses: actions/upload-artifact@v4
