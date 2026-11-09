@@ -4,6 +4,10 @@ on:
   push:
     paths:
       - .github/workflows/package-offline-map-assets.yml
+      - scripts/assemble-offline-lab.py
+      - pmtiles-persistent-lab-v1.html
+      - pmtiles-persistent-lab-v1.js
+      - pmtiles-persistent-store-v1.js
   workflow_dispatch:
 
 permissions:
@@ -49,36 +53,21 @@ jobs:
           git -C upstream-assets rev-parse HEAD > output/assets/upstream-basemap-assets-commit.txt
           test -s 'output/assets/fonts/Noto Sans Regular/0-255.pbf'
           test -s 'output/assets/fonts/Noto Sans Medium/0-255.pbf'
-      - name: Validate file inventory, bound size and record hashes
+      - name: Assemble isolated offline test site and check syntax
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import hashlib, json, os
-          from pathlib import Path
-          base=Path("output")
-          files=sorted(p for p in base.rglob("*") if p.is_file())
-          total=sum(p.stat().st_size for p in files)
-          if not files or total > 100 * 1024 * 1024:
-              raise SystemExit(f"Unexpected offline resource size: {total} bytes")
-          inventory={str(p.relative_to(base)):{
-              "size":p.stat().st_size,
-              "sha256":hashlib.sha256(p.read_bytes()).hexdigest()
-          } for p in files}
-          (base/"manifest.json").write_text(json.dumps({
-              "scope":"map renderer, glyphs and light sprites; no map tiles",
-              "libraries":{"maplibre":"6.16.0","pmtiles":"4.5.0","basemaps":"5.7.2"},
-              "files":inventory
-          },indent=2))
-          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as report:
-              report.write("## Offline renderer assets\n\n")
-              report.write(f"Files: {len(files)} · Total: {total/1048576:.2f} MiB\n\n")
-              report.write("Map data NOT included; no service worker or offline runtime enabled.\n")
-          PY
+          python3 scripts/assemble-offline-lab.py
+          node --check output/pmtiles-persistent-lab-v1.js
+          node --check output/pmtiles-persistent-store-v1.js
+          node --check output/offline-stuttgart-sw.js
+          node --check output/offline-register.js
+          test -s output/manifest.json
+          ! grep -E 'https://(unpkg.com|protomaps.github.io)' output/index.html output/pmtiles-persistent-lab-v1.js
       - name: Upload versioned resource package
         uses: actions/upload-artifact@v4
         with:
-          name: pin2map-map-renderer-assets
+          name: pin2map-stuttgart-offline-lab-package
           path: output/
           retention-days: 14
           if-no-files-found: error
