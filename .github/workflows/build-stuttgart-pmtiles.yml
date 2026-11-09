@@ -1,0 +1,67 @@
+name: Build Stuttgart PMTiles cutout (isolated)
+
+on:
+  push:
+    paths:
+      - .github/workflows/build-stuttgart-pmtiles.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stuttgart-pmtiles-cutout
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Install pinned PMTiles CLI
+        run: |
+          go install github.com/protomaps/go-pmtiles@v1.31.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Read and extract limited Stuttgart region
+        shell: bash
+        env:
+          SOURCE_URL: https://data.source.coop/protomaps/openstreetmap/v4.pmtiles
+          BBOX: '9.12,48.72,9.25,48.82'
+          MAX_ZOOM: '12'
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          pmtiles show "$SOURCE_URL" --header-json > output/source-header.json
+          pmtiles extract "$SOURCE_URL" output/stuttgart-z12.pmtiles --bbox="$BBOX" --maxzoom="$MAX_ZOOM" --download-threads=4
+          pmtiles verify output/stuttgart-z12.pmtiles
+          pmtiles show output/stuttgart-z12.pmtiles --header-json > output/stuttgart-header.json
+          pmtiles show output/stuttgart-z12.pmtiles --metadata > output/stuttgart-metadata.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p=Path("output/stuttgart-z12.pmtiles")
+          size=p.stat().st_size
+          print(f"PMTiles size: {size:,} bytes")
+          if not 127 <= size <= 80 * 1024 * 1024:
+              raise SystemExit("Extract outside conservative test bounds (128 B–80 MiB)")
+          h=hashlib.file_digest(p.open("rb"),"sha256").hexdigest()
+          Path("output/SHA256SUMS").write_text(f"{h}  {p.name}\n")
+          Path("output/README.txt").write_text(
+              "Test cutout: Stuttgart center, bbox 9.12,48.72,9.25,48.82, maxzoom 12\n"
+              "Source: https://data.source.coop/protomaps/openstreetmap/v4.pmtiles\n"
+              "License: ODbL Produced Work, attribution to OpenStreetMap contributors\n"
+              "This artifact is NOT deployed to GitHub Pages, NOT offline-ready.\n")
+          PY
+      - name: Upload checked PMTiles archive as short-lived artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stuttgart-pmtiles-z12
+          path: output/
+          if-no-files-found: error
+          retention-days: 14
