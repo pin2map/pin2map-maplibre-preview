@@ -32,6 +32,14 @@ jobs:
           mkdir -p output/vendor output/assets
           curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs'             -o output/vendor/maplibre-gl.mjs
           curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css'             -o output/vendor/maplibre-gl.css
+          # MapLibre 6 loads a distinct ESM Web Worker at runtime.
+          # Both files must be same-origin, with the worker alongside maplibre-gl.mjs.
+          curl -fLSs --retry 3 --retry-all-errors \
+            'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl-worker.mjs' \
+            -o output/vendor/maplibre-gl-worker.mjs
+          curl -fLSs --retry 3 --retry-all-errors \
+            'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl-shared.mjs' \
+            -o output/vendor/maplibre-gl-shared.mjs
           curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js'             -o output/vendor/pmtiles.js
           curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/@protomaps/basemaps@5.7.2/dist/basemaps.js'             -o output/vendor/basemaps.js
           for file in output/vendor/*; do test -s "$file"; done
