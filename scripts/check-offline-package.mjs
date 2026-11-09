@@ -28,7 +28,6 @@ for(const entry of [
  "./offline-register.js",
  "./vendor/maplibre-gl.mjs",
  "./vendor/maplibre-gl-worker.mjs",
- "./vendor/maplibre-gl-shared.mjs",
  "./vendor/maplibre-gl.css",
  "./vendor/pmtiles.js",
  "./vendor/basemaps.js",
