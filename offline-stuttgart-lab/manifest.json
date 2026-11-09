@@ -4141,12 +4141,12 @@
       "sha256": "2499dce5c1a984e3c284b0a5811814937ddf0727b47d68d00f80690048fca669"
     },
     "offline-stuttgart-sw.js": {
-      "bytes": 58012,
-      "sha256": "b9305a3aabec892d762754eb1c46f99f0b09a6ed91b8f0c98e4d7e3f29614b21"
+      "bytes": 58047,
+      "sha256": "259fd8d5b2f8a0a00d8cb3f62f660efa65a45faf2483600505d45cb25cf95b57"
     },
     "pmtiles-persistent-lab-v1.js": {
-      "bytes": 5764,
-      "sha256": "a61910a1d8ae519e4e32d04a2b7c872de4c0895d8d0e51ee5320301f53dff007"
+      "bytes": 5855,
+      "sha256": "5b59421d6eae7d86fa2bdeaee7f8877b716faec692dcdb88ad6b1c2112a8a8e4"
     },
     "pmtiles-persistent-store-v1.js": {
       "bytes": 1654,
@@ -4155,6 +4155,10 @@
     "vendor/basemaps.js": {
       "bytes": 38680,
       "sha256": "551864f01da1bfe3005e99987197f22f56d0c35f9a10fa1727a889e2434af16d"
+    },
+    "vendor/maplibre-gl-worker.mjs": {
+      "bytes": 519372,
+      "sha256": "0bf06492bdb7ba3d4132b78e435621bfba60d5250967991c02b1a73affea8cd5"
     },
     "vendor/maplibre-gl.css": {
       "bytes": 71596,

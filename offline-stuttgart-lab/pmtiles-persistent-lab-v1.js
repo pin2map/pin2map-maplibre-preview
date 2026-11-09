@@ -1,4 +1,5 @@
 import * as maplibregl from "./vendor/maplibre-gl.mjs";
+maplibregl.setWorkerUrl(new URL("./vendor/maplibre-gl-worker.mjs", import.meta.url).href);
 const $=id=>document.getElementById(id);
 const store=window.Pin2MapPMTilesLabStore;
 const notify=(message,error=false)=>{
