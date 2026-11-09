@@ -37,7 +37,7 @@ footer{position:absolute;bottom:8px;left:8px;right:8px;z-index:3;background:#fff
 <div id="status" role="status">Prüfe lokalen Speicher …</div>
 </header>
 <div id="map" aria-label="Lokale gespeicherte PMTiles-Karte"></div>
-<footer>Die PMTiles-Datei bleibt im Browserprofil auf diesem Gerät (IndexedDB). Kein Upload und keine Synchronisation. Kartenstil, Glyphs, Sprites und Bibliotheken liegen in diesem Testpaket lokal. Offline-Funktion noch gesondert testen. Browser können lokale Daten bei Speicherknappheit entfernen.</footer>
+<div id="offlineReadiness" role="status" style="position:absolute;z-index:6;left:8px;bottom:66px;max-width:calc(100% - 16px);background:#fffefa;border:1px solid #d8e1eb;padding:8px;border-radius:8px;font-size:11px">Offline-Ressourcen werden vorbereitet …</div>\n<footer>Die PMTiles-Datei bleibt im Browserprofil auf diesem Gerät (IndexedDB). Kein Upload und keine Synchronisation. Kartenstil, Glyphs, Sprites und Bibliotheken liegen in diesem Testpaket lokal. Offline-Funktion noch gesondert testen. Browser können lokale Daten bei Speicherknappheit entfernen.</footer>
 <script type="module" src="./pmtiles-persistent-lab-v1.js"></script>
 <script src="./offline-register.js" defer></script>
 </body>
