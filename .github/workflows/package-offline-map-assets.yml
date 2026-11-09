@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: pin2map-offline-map-assets
@@ -95,3 +95,41 @@ jobs:
           path: output/
           retention-days: 14
           if-no-files-found: error
+
+      - name: Deploy verified offline lab under isolated GitHub Pages directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The repository Pages source is main/(root). Never touch existing
+          # preview pages or the separate production pin2map repository.
+          DEST="offline-stuttgart-lab"
+          test "$DEST" = "offline-stuttgart-lab"
+          test -s output/index.html
+          test -s output/manifest.json
+          test -s output/offline-stuttgart-sw.js
+          test -s output/assets/fonts/OFL.txt
+          test -s output/assets/sprites/v4/light.json
+          # The source checkout is not assumed to be up-to-date after other
+          # GitHub writers. Non-force push fails safely on concurrent changes.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git switch -C publish-offline-lab origin/main
+          mkdir -p "$DEST"
+          rsync -a --delete output/ "$DEST/"
+          git add -A -- "$DEST/"
+          if git diff --cached --quiet; then
+            echo "Offline lab unchanged; no commit required"
+          else
+            git commit -m "deploy: verified isolated Stuttgart offline lab"
+            git push origin HEAD:main
+          fi
+          {
+            echo "## Offline lab publishing"
+            echo
+            echo "Published only to \`$DEST/\` on the Pages source branch."
+            echo
+            echo "URL: https://pin2map.github.io/pin2map-maplibre-preview/$DEST/"
+            echo
+            echo "Pages deployment and actual airplane-mode functionality remain subject to verification."
+          } >> "$GITHUB_STEP_SUMMARY"
