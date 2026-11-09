@@ -216,7 +216,6 @@ function approveMove(){
  notify("Neue Position übernommen (nur Testdaten)");
 }
 // Clear the previous anchor only after a deliberate map interaction.
-function clearZoomAnchor(){$("zoomAnchor").classList.add("hidden");}
 function showError(error){notify("MapLibre-Test fehlgeschlagen: "+String(error?.message||error));}
 $("closeEditor").addEventListener("click",closeEditor);
 $("startMove").addEventListener("click",startMove);
@@ -228,6 +227,8 @@ $("pinName").addEventListener("input",e=>{
 });
 try{
  adapter=window.Pin2MapMapLibreAdapter.mount("map",{center:{lat:49.3,lng:7.4},zoom:4.6},maplibregl);
+ // Ensure the diagnostic overlay survives renderer initialization.
+ adapter.getContainer().append($("zoomAnchor"));
  adapter.map.on("load",()=>{
   render();
   notify("MapLibre Testversion 7 · drei Test-Pins angezeigt");
