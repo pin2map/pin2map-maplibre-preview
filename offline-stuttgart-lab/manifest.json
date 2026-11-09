@@ -4142,11 +4142,11 @@
     },
     "offline-stuttgart-sw.js": {
       "bytes": 58047,
-      "sha256": "8d0abe9650a260700a39a3730967a6a574412a02038e4809e2b1ae72a1b315a3"
+      "sha256": "98b39224cefc086492f2d480326c822550887e67f016e5e2c08483efaf0aef80"
     },
     "pmtiles-persistent-lab-v1.js": {
-      "bytes": 5855,
-      "sha256": "5b59421d6eae7d86fa2bdeaee7f8877b716faec692dcdb88ad6b1c2112a8a8e4"
+      "bytes": 7248,
+      "sha256": "7771c6003db2f0f07398a37c1d437643194861ae1e749ffff72d749fb51b0630"
     },
     "pmtiles-persistent-store-v1.js": {
       "bytes": 1654,
