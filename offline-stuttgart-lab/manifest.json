@@ -4133,8 +4133,8 @@
       "sha256": "912e1e2cd631f91110f5eba66170646f202fc17e678d8d9d624ca99d939e5c48"
     },
     "index.html": {
-      "bytes": 2739,
-      "sha256": "a5d01b02410d3086e20a2b4dbe78bddce3d6137770e4aa49b6a5ddae9951fd5d"
+      "bytes": 2908,
+      "sha256": "2bb9b8eaa26451a071cd58d49fe15bc65e36c18ef7bfd353aebc7557787e89ae"
     },
     "offline-register.js": {
       "bytes": 1551,
@@ -4142,7 +4142,7 @@
     },
     "offline-stuttgart-sw.js": {
       "bytes": 58047,
-      "sha256": "259fd8d5b2f8a0a00d8cb3f62f660efa65a45faf2483600505d45cb25cf95b57"
+      "sha256": "8d0abe9650a260700a39a3730967a6a574412a02038e4809e2b1ae72a1b315a3"
     },
     "pmtiles-persistent-lab-v1.js": {
       "bytes": 5855,
