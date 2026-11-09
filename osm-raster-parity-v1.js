@@ -15,18 +15,19 @@ const maplibre=new maplibregl.Map({
 });
 maplibre.addControl(new maplibregl.NavigationControl({showCompass:false}),"top-right");
 let lock=false;
-let unlockQueued=false;
 const syncFromLeaflet=()=>{
  if(lock)return;
  lock=true;
- const c=leaflet.getCenter();
+ const c=leaflet.getCenter(),m=maplibre.getCenter();
+ if(Math.abs(c.lat-m.lat)<1e-7&&Math.abs(c.lng-m.lng)<1e-7&&Math.abs(leaflet.getZoom()-maplibre.getZoom())<0.001){lock=false;return;}
  maplibre.jumpTo({center:[c.lng,c.lat],zoom:leaflet.getZoom()});
  queueMicrotask(()=>{lock=false;});
 };
 const syncFromMapLibre=()=>{
  if(lock)return;
  lock=true;
- const c=maplibre.getCenter();
+ const c=maplibre.getCenter(),l=leaflet.getCenter();
+ if(Math.abs(c.lat-l.lat)<1e-7&&Math.abs(c.lng-l.lng)<1e-7&&Math.abs(leaflet.getZoom()-maplibre.getZoom())<0.001){lock=false;return;}
  leaflet.setView([c.lat,c.lng],maplibre.getZoom(),{animate:false});
  queueMicrotask(()=>{lock=false;});
 };
