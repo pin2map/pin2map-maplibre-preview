@@ -1,0 +1,84 @@
+name: Package offline map renderer assets (isolated)
+
+on:
+  push:
+    paths:
+      - .github/workflows/package-offline-map-assets.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pin2map-offline-map-assets
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Fetch pinned application libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/vendor output/assets
+          curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs'             -o output/vendor/maplibre-gl.mjs
+          curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css'             -o output/vendor/maplibre-gl.css
+          curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js'             -o output/vendor/pmtiles.js
+          curl -fLSs --retry 3 --retry-all-errors             'https://unpkg.com/@protomaps/basemaps@5.7.2/dist/basemaps.js'             -o output/vendor/basemaps.js
+          for file in output/vendor/*; do test -s "$file"; done
+      - name: Collect glyph ranges and sprite sheets with licenses
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/protomaps/basemaps-assets.git upstream-assets
+          test -d upstream-assets/fonts
+          test -s upstream-assets/sprites/v4/light.json
+          test -s upstream-assets/sprites/v4/light.png
+          test -s upstream-assets/sprites/v4/light@2x.json
+          test -s upstream-assets/sprites/v4/light@2x.png
+          cp -a upstream-assets/fonts output/assets/fonts
+          mkdir -p output/assets/sprites/v4
+          cp upstream-assets/sprites/v4/light* output/assets/sprites/v4/
+          if test -f upstream-assets/sprites/LICENSE.txt; then
+            cp upstream-assets/sprites/LICENSE.txt output/assets/sprites/
+          fi
+          git -C upstream-assets rev-parse HEAD > output/assets/upstream-basemap-assets-commit.txt
+          test -s 'output/assets/fonts/Noto Sans Regular/0-255.pbf'
+          test -s 'output/assets/fonts/Noto Sans Medium/0-255.pbf'
+      - name: Validate file inventory, bound size and record hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          base=Path("output")
+          files=sorted(p for p in base.rglob("*") if p.is_file())
+          total=sum(p.stat().st_size for p in files)
+          if not files or total > 100 * 1024 * 1024:
+              raise SystemExit(f"Unexpected offline resource size: {total} bytes")
+          inventory={str(p.relative_to(base)):{
+              "size":p.stat().st_size,
+              "sha256":hashlib.sha256(p.read_bytes()).hexdigest()
+          } for p in files}
+          (base/"manifest.json").write_text(json.dumps({
+              "scope":"map renderer, glyphs and light sprites; no map tiles",
+              "libraries":{"maplibre":"6.16.0","pmtiles":"4.5.0","basemaps":"5.7.2"},
+              "files":inventory
+          },indent=2))
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as report:
+              report.write("## Offline renderer assets\n\n")
+              report.write(f"Files: {len(files)} · Total: {total/1048576:.2f} MiB\n\n")
+              report.write("Map data NOT included; no service worker or offline runtime enabled.\n")
+          PY
+      - name: Upload versioned resource package
+        uses: actions/upload-artifact@v4
+        with:
+          name: pin2map-map-renderer-assets
+          path: output/
+          retention-days: 14
+          if-no-files-found: error
