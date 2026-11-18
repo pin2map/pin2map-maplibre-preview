@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pin2map · OpenFreeMap Objektdetektor V2</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:#f4f6fa;color:#172b49}
+header{background:#172b49;color:#fff;padding:12px 16px}header strong{font-size:18px}
+main{display:grid;grid-template-columns:minmax(300px,1fr) minmax(340px,440px);height:calc(100dvh - 51px)}
+#map{min-height:300px}aside{padding:12px;overflow:auto}.panel{border:1px solid #dce2eb;background:white;border-radius:10px;padding:12px;margin-bottom:12px}
+h2{font-size:16px;margin:0 0 10px}select,button{padding:9px;font:inherit;border-radius:7px;max-width:100%}
+select{border:1px solid #bdc7d5;background:white}button{border:0;background:#6a4aa2;color:#fff;cursor:pointer;margin:6px 4px 6px 0}
+button:disabled{opacity:.5}pre{overflow:auto;white-space:pre-wrap;word-break:break-word;font:11px ui-monospace,monospace;max-height:42vh}
+small{color:#56677e}#status{font-weight:600}.result{padding:10px;border:1px solid #dce2eb;border-radius:7px;margin:9px 0}
+.result b{display:block}a{color:#354e9d}.warn{color:#a34717}
+@media(max-width:780px){main{display:flex;flex-direction:column;height:auto}#map{height:48dvh}aside{overflow:visible}}
+</style></head><body>
+<header><strong>pin2map · OpenFreeMap Objektdetektor V2</strong> · isolierter Datentest, keine PWA-Daten</header>
+<main><div id="map"></div><aside>
+<div class="panel"><h2>Referenzpunkt</h2>
+<select id="case"></select>
+<label>Zoom <select id="zoom"><option>7</option><option>10</option><option selected>12</option><option>14</option></select></label>
+<div><button id="run">Ausgewählten Punkt untersuchen</button><button id="export">Ergebnis exportieren</button></div>
+<p id="status" role="status">Karte wird geladen …</p>
+<small>Einzeltests, kein automatischer Massendownload. Die angezeigte Kartenfläche dient der Diagnostik. Die Feature-Geometrie wird nur kachelweise bereitgestellt.</small></div>
+<div class="panel"><h2>Erkannte Objekte</h2><div id="match">Noch kein Test.</div></div>
+<div class="panel"><h2>Technische Details</h2><pre id="output">Noch kein Test.</pre></div>
+</aside></main>
+<script type="module">
+import * as gl from "https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs";
+import "./map-adapter-maplibre.js?v=3";
+const cases=[
+["Enoggera Reservoir",-27.445287,152.918615,"way",8113068],
+["Marradong Mining Area",-32.838924,116.434307,"relation",14893603],
+["Lake Kivu",-1.776754,29.09729,"relation",9072],
+["Farihy Ihotry",-21.913108,43.68679,"way",75250501],
+["Namib-Naukluft National Park",-24.352101,15.117188,"relation",4150085],
+["Lago Villarrica",-39.230658,-72.071686,"relation",1922935],
+["Torres del Paine",-50.929007,-72.778931,"relation",2622290],
+["Tonlé Sap",12.897489,103.94165,"relation",5638825]
+];
+const $=id=>document.getElementById(id),status=s=>$("status").textContent=s;
+cases.forEach((c,i)=>{const o=document.createElement("option");o.textContent=c[0];o.value=i;$("case").append(o)});
+function safe(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function decodeId(featureId){
+ if(!Number.isSafeInteger(featureId)||featureId<=0)return null;
+ const suffix=featureId%10;const type=({1:"node",2:"way",3:"relation"})[suffix];
+ if(!type)return null;
+ return {type,id:Math.floor(featureId/10),status:"heuristic-planetiler"};
+}
+function chooseNames(p){
+ return {local:p.name??null,international:p.name_int??null,
+ german:p["name:de"]??p.name_de??null,english:p["name:en"]??p.name_en??null};
+}
+function compact(f){
+ const raw=f?.id??null;
+ return {featureId:raw,osmGuess:decodeId(raw),sourceLayer:f?.sourceLayer||null,
+ styleLayer:f?.layer?.id||null,geometryType:f?.geometry?.type||null,
+ class:f?.properties?.class??null,
+ propertyId:f?.properties?.id??null,
+ names:chooseNames(f?.properties||{})};
+}
+function idle(map,timeout=20000){return new Promise((resolve,reject)=>{
+ let settled=false;
+ const timer=setTimeout(()=>complete(new Error("Timeout beim Laden der Kacheln")),timeout);
+ function complete(e){if(settled)return;settled=true;clearTimeout(timer);map.off("idle",onIdle);map.off("error",onError);e?reject(e):resolve()}
+ function onIdle(){complete()}function onError(e){complete(e.error||new Error("Kartenfehler"))}
+ map.on("idle",onIdle);map.on("error",onError);if(map.loaded())complete();
+});}
+let adapter,ready=false,busy=false,last=null,marker=null;
+const expected=c=>c[4]*10+(c[3]==="way"?2:3);
+function nameMatch(list){
+ const rows=new Map();
+ for(const entry of list)if(!rows.has(entry.featureId))rows.set(entry.featureId,entry);
+ return [...rows.values()];
+}
+async function run(){
+ if(!ready||busy)return;busy=true;$("run").disabled=true;
+ const c=cases[Number($("case").value)],zoom=Number($("zoom").value),t0=performance.now(),map=adapter.map;
+ const row={name:c[0],lat:c[1],lng:c[2],zoom,expectedOsm:{type:c[3],id:c[4]},when:new Date().toISOString()};
+ try{
+  status("Lade Gebiet und suche geometrisch getroffene Features …");
+  map.jumpTo({center:[c[2],c[1]],zoom});
+  if(marker)marker.remove();
+  marker=new gl.Marker({color:"#cc3366"}).setLngLat([c[2],c[1]]).addTo(map);
+  await idle(map);
+  const p=map.project([c[2],c[1]]);
+  // Exact pixel query prevents nearby objects from being reported as containing the point.
+  const hits=map.queryRenderedFeatures([p.x,p.y]).filter(f=>["water","park","landuse","landcover"].includes(f.sourceLayer));
+  const rendered=nameMatch(hits.map(compact));
+  const layers=["water_name","park","poi"];
+  const related=[],sourceStats=[];
+  // Source querying is tile-wide; only join on the SAME encoded feature ID.
+  for(const layer of layers){
+    try{
+      const feats=map.querySourceFeatures("openmaptiles",{sourceLayer:layer});
+      sourceStats.push({layer,count:feats.length});
+      const seen=new Set();
+      for(const f of feats){
+       if(!rendered.some(h=>h.featureId===f.id)||seen.has(f.id))continue;
+       seen.add(f.id);
+       related.push({...compact(f),sourceLayer:layer});
+      }
+    }catch(e){sourceStats.push({layer,error:String(e?.message||e)})}
+  }
+  const merged=rendered.map(f=>({ ...f,
+   linkedNames:related.filter(x=>x.featureId===f.featureId).map(x=>({layer:x.sourceLayer,...x.names})),
+   expectedOsmMatch:f.featureId===expected(c)||f.propertyId===c[4]
+  }));
+  row.renderedMatches=merged;row.sourceStats=sourceStats;row.exactExpectedId=expected(c);
+  row.matchedExpected=merged.some(f=>f.expectedOsmMatch);
+  row.nameFromLinkedLayer=merged.some(f=>f.linkedNames.some(n=>n.local||n.english||n.international));
+  row.note="featureId-Decodierung ist eine Quelle-spezifische Heuristik; kein Beweis fuer alle Objekte. Die Quelle liefert keine vollstaendige Polygongeometrie.";
+  $("match").innerHTML=merged.length?merged.map(f=>{
+    const n=f.names.english||f.names.german||f.names.international||f.names.local||
+      f.linkedNames.map(x=>x.english||x.german||x.international||x.local).find(Boolean)||"Ohne Namen";
+    const osm=f.osmGuess;
+    const link=osm?'<a target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/'+osm.type+'/'+osm.id+'">OSM-Objekt '+osm.type+'/'+osm.id+'</a>':"OSM-Kennung nicht erkannt";
+    return '<div class="result"><b>'+safe(n)+'</b>'+safe(f.sourceLayer+" · "+(f.class||f.geometryType))+
+      '<div>'+link+'</div><small>'+safe(f.expectedOsmMatch?"Referenz-ID stimmt überein":"Nicht die erwartete Referenz-ID")+'</small></div>';
+  }).join(""):'<p class="warn">Keine relevante Fläche genau unter dem Testpunkt erkannt.</p>';
+  status("Fertig · "+merged.length+" Flächen · "+Math.round(performance.now()-t0)+" ms");
+ }catch(e){row.error=String(e?.message||e);status("Fehler: "+row.error)}
+ row.elapsedMs=Math.round(performance.now()-t0);last=row;
+ $("output").textContent=JSON.stringify(row,null,2);
+ busy=false;$("run").disabled=false;
+}
+$("run").onclick=run;
+$("export").onclick=()=>{if(!last)return status("Bitte erst einen Test durchführen.");
+ const blob=new Blob([JSON.stringify({test:"pin2map OpenFreeMap object detector v2",version:2,results:[last]},null,2)],{type:"application/json"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pin2map-openfreemap-v2.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
+try{
+ adapter=window.Pin2MapMapLibreAdapter.mount("map",{center:{lat:-27.445287,lng:152.918615},zoom:12},gl,"https://tiles.openfreemap.org/styles/liberty");
+ adapter.map.once("load",()=>{ready=true;status("Bereit – wähle ein Objekt und starte den Einzeltest.")});
+ adapter.map.on("error",e=>{if(!busy)status("Kartenfehler: "+String(e?.error?.message||"Unbekannt"))});
+}catch(e){status("Startfehler: "+String(e?.message||e))}
+</script></body></html>
