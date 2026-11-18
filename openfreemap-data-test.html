@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pin2map · OpenFreeMap Datentest</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;color:#172b49;background:#f6f8fb}
+header{padding:12px 16px;background:#172b49;color:white}header strong{font-size:17px}
+main{display:grid;grid-template-columns:minmax(340px,1fr) minmax(300px,400px);height:calc(100dvh - 55px)}
+#map{min-height:300px}aside{padding:14px;overflow:auto}select,button{padding:9px;border:1px solid #c0cbda;border-radius:7px;font:inherit;max-width:100%}button{background:#63449c;color:white;cursor:pointer;border:0;margin:6px 5px 6px 0}
+h2{font-size:17px;margin:8px 0}.panel{padding:12px;background:white;border-radius:9px;margin-bottom:11px;border:1px solid #e1e6ed}
+small{color:#56657a}pre{font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:42vh;overflow:auto}#status{font-weight:600}
+@media(max-width:790px){main{display:flex;flex-direction:column;height:auto}#map{height:48dvh;min-height:270px}aside{overflow:visible}}
+</style></head>
+<body><header><strong>pin2map · OpenFreeMap-Vektordatentest</strong> · isoliert, keine PWA-Daten</header>
+<main><div id="map"></div><aside>
+<div class="panel"><h2>Referenzpunkt</h2>
+<select id="case" aria-label="Referenzpunkt"></select>
+<div><label>Zoom <select id="zoom"><option>7</option><option>10</option><option selected>12</option><option>14</option></select></label></div>
+<button id="check">Diesen Punkt untersuchen</button><button id="all">Alle 8 prüfen</button><button id="save">JSON exportieren</button>
+<p id="status" role="status">Initialisierung …</p>
+<small>Keine Registrierung, kein API-Schlüssel. Abfrage sowohl der sichtbaren Features als auch der geladenen Vector-Tile-Quellfeatures. Kein Zugriff auf vollständige OSM-Geometrien versprochen.</small></div>
+<div class="panel"><h2>Gefundene Objektdaten</h2><pre id="output">Noch keine Daten.</pre></div>
+</aside></main>
+<script type="module">
+import * as gl from "https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs";
+import "./map-adapter-maplibre.js?v=3";
+const cases=[
+["Enoggera Reservoir",-27.445287,152.918615],
+["Marradong Mining Area",-32.838924,116.434307],
+["Lake Kivu",-1.776754,29.09729],
+["Farihy Ihotry",-21.913108,43.68679],
+["Namib-Naukluft National Park",-24.352101,15.117188],
+["Lago Villarrica",-39.230658,-72.071686],
+["Torres del Paine",-50.929007,-72.778931],
+["Tonlé Sap",12.897489,103.94165]];
+const $=id=>document.getElementById(id);
+cases.forEach(([name],i)=>{const o=document.createElement("option");o.value=i;o.textContent=name;$("case").append(o)});
+let results=[],adapter,ready=false,working=false;
+const err=e=>String(e?.message||e||"Unbekannter Fehler");
+const status=x=>$("status").textContent=x;
+const srcType=src=>src?.type||"";
+function props(f){return {id:f.id??null,source:f.source??null,sourceLayer:f.sourceLayer??null,
+layer:f.layer?.id??null,type:f.geometry?.type??null,
+properties:f.properties??{}};}
+function summary(features){return {total:features.length,named:features.filter(f=>f.properties?.name||f.properties?.name_en).length,
+osmId:features.filter(f=>Object.keys(f.properties||{}).some(k=>/^osm[_:]?id$/i.test(k))).length,
+items:features.slice(0,80)};}
+function waitIdle(map,ms=17000){
+return new Promise((resolve,reject)=>{
+let done=false;const timer=setTimeout(()=>finish(new Error("Kartenladung: Zeitüberschreitung")),ms);
+function finish(e){if(done)return;done=true;clearTimeout(timer);map.off("idle",onIdle);map.off("error",onError);e?reject(e):resolve()}
+function onIdle(){finish()}function onError(e){if(e?.error)finish(e.error)}
+map.on("idle",onIdle);map.on("error",onError);if(map.loaded())finish();
+});}
+async function inspect(index){
+const [name,lat,lng]=cases[index],zoom=Number($("zoom").value);const start=performance.now();
+const row={name,lat,lng,zoom,checkedAt:new Date().toISOString()};
+try{
+const map=adapter.map;
+map.jumpTo({center:[lng,lat],zoom});await waitIdle(map);
+const pixel=map.project([lng,lat]),rect=[[pixel.x-2,pixel.y-2],[pixel.x+2,pixel.y+2]];
+const visible=map.queryRenderedFeatures(rect).map(props);
+const loaded=[];
+const style=map.getStyle();
+for(const [sourceId,source] of Object.entries(style.sources||{})){
+if(srcType(source)!=="vector")continue;
+const layers=new Set((style.layers||[]).filter(l=>l.source===sourceId&&l["source-layer"]).map(l=>l["source-layer"]));
+for(const sourceLayer of layers){
+try{
+const fs=map.querySourceFeatures(sourceId,{sourceLayer}).map(props);
+const atPoint=fs.filter(f=>{
+// Source-feature geometry coordinates are in geographic coordinates; MapLibre
+// source-feature query is tile-wide. These results are candidates, NOT proven
+// containing the click point.
+return true;
+});
+loaded.push({sourceId,sourceLayer,total:fs.length,samples:atPoint.slice(0,8)});
+}catch(e){loaded.push({sourceId,sourceLayer,error:err(e)})}
+}}
+row.rendered=summary(visible);
+row.loadedSourceLayers=loaded;
+row.elapsedMs=Math.round(performance.now()-start);
+}catch(e){row.error=err(e);row.elapsedMs=Math.round(performance.now()-start)}
+return row;
+}
+function show(r){$("output").textContent=JSON.stringify(r,null,2)}
+async function run(all){
+if(!ready||working)return;working=true;$("check").disabled=$("all").disabled=true;
+const indices=all?cases.map((_,i)=>i):[Number($("case").value)];
+try{for(const i of indices){status("Prüfe "+(i+1)+"/8: "+cases[i][0]);const r=await inspect(i);results.push(r);show(r)}
+status("Abgeschlossen: "+indices.length+" Punkte; Ergebnisse exportierbar.")}
+finally{working=false;$("check").disabled=$("all").disabled=false}
+}
+$("check").onclick=()=>run(false);$("all").onclick=()=>run(true);
+$("save").onclick=()=>{const blob=new Blob([JSON.stringify({test:"pin2map OpenFreeMap data inspection",version:1,style:"https://tiles.openfreemap.org/styles/liberty",results},null,2)],{type:"application/json"});
+const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pin2map-openfreemap-results.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),2000)};
+try{
+adapter=window.Pin2MapMapLibreAdapter.mount("map",{center:{lat:-27.445287,lng:152.918615},zoom:12},gl,"https://tiles.openfreemap.org/styles/liberty");
+adapter.map.once("load",()=>{ready=true;status("Karte geladen. Test starten.");});
+adapter.map.on("error",e=>status("Kartenfehler: "+err(e.error)));
+}catch(e){status("Initialisierung fehlgeschlagen: "+err(e))}
+</script></body></html>
