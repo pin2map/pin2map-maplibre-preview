@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pin2map · OpenFreeMap + Nominatim V4</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#172b49;font:14px system-ui,sans-serif}
+header{background:#172b49;color:white;padding:13px 16px}header strong{font-size:17px}
+main{display:grid;grid-template-columns:minmax(300px,1fr) minmax(350px,440px);height:calc(100dvh - 51px)}
+#map{min-height:300px}aside{padding:12px;overflow:auto}
+.panel{border:1px solid #d8e0ed;border-radius:9px;padding:12px;background:white;margin-bottom:10px}
+h2{font-size:16px;margin:0 0 10px}select,button{font:inherit;padding:9px;border-radius:7px;max-width:100%}
+select{border:1px solid #bbc7d5}button{border:0;background:#69469e;color:#fff;cursor:pointer;margin:5px 4px 5px 0}
+button:disabled{opacity:.5}pre{white-space:pre-wrap;word-break:break-word;overflow:auto;max-height:33vh;font:11px ui-monospace,monospace}
+.item{padding:9px;border:1px solid #e0e5ee;border-radius:7px;margin:8px 0}#status{font-weight:600}
+small{color:#596a80}a{color:#365bb1}
+@media(max-width:790px){main{display:flex;flex-direction:column;height:auto}#map{height:48dvh}aside{overflow:visible}}
+</style></head><body>
+<header><strong>pin2map · Objekterkennung V4</strong> · OpenFreeMap → Nominatim → Polygon</header>
+<main><div id="map"></div><aside>
+<div class="panel"><h2>Objekt erkennen</h2>
+<select id="case" aria-label="Testgebiet"></select>
+<label>Zoom <select id="zoom"><option>7</option><option>10</option><option selected>12</option><option>14</option></select></label>
+<div><button id="detect">Fläche erkennen</button><button id="export">JSON exportieren</button></div>
+<p id="status" role="status">Initialisierung …</p>
+<small>Einzeltest ohne API-Key. Der Nominatim-Abruf erfolgt erst auf Klick. Kein Autocomplete, keine Massenabfrage. Antworten werden in diesem Browser zwischengespeichert.</small></div>
+<div class="panel"><h2>Erkannte Flächen</h2><div id="matches">Noch kein Test.</div></div>
+<div class="panel"><h2>Nominatim-Polygon</h2><div id="geometry">Noch kein Abruf.</div></div>
+<div class="panel"><h2>Diagnose</h2><pre id="debug">Keine Daten.</pre></div>
+</aside></main>
+<script type="module">
+import * as gl from "https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs";
+import "./map-adapter-maplibre.js?v=3";
+const examples=[
+["Enoggera Reservoir",-27.445287,152.918615],
+["Marradong Mining Area",-32.838924,116.434307],
+["Lake Kivu",-1.776754,29.09729],
+["Farihy Ihotry",-21.913108,43.68679],
+["Namib-Naukluft National Park",-24.352101,15.117188],
+["Lago Villarrica",-39.230658,-72.071686],
+["Torres del Paine",-50.929007,-72.778931],
+["Tonlé Sap",12.897489,103.94165]
+];
+const $=id=>document.getElementById(id);
+const status=s=>$("status").textContent=s;
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+examples.forEach((x,i)=>{const opt=document.createElement("option");opt.value=i;opt.textContent=x[0];$("case").append(opt)});
+function osmFromId(id){
+ if(!Number.isSafeInteger(id)||id<11)return null;
+ const type=({2:"way",3:"relation"})[id%10];return type?{type,id:Math.floor(id/10)}:null;
+}
+function containsRing(p,r){let inside=false;for(let i=0,j=r.length-1;i<r.length;j=i++){const a=r[i],b=r[j];if((a[1]>p[1])!==(b[1]>p[1])&&p[0]<(b[0]-a[0])*(p[1]-a[1])/(b[1]-a[1])+a[0])inside=!inside;}return inside}
+function contains(p,g){if(!g)return false;const one=r=>r.length>0&&containsRing(p,r[0])&&!r.slice(1).some(h=>containsRing(p,h));
+return g.type==="Polygon"?one(g.coordinates):g.type==="MultiPolygon"?g.coordinates.some(one):false}
+function countVertices(g){let n=0;function traverse(arr){if(!Array.isArray(arr))return;if(typeof arr[0]==="number"){n++;return}arr.forEach(traverse)}traverse(g?.coordinates);return n}
+function waitIdle(map,ms=23000){return new Promise((res,rej)=>{let ended=false;const t=setTimeout(()=>finish(new Error("Kachelladen: Timeout")),ms);
+function finish(err){if(ended)return;ended=true;clearTimeout(t);map.off("idle",ok);map.off("error",bad);err?rej(err):res()}
+function ok(){finish()}function bad(e){finish(e.error||new Error("Kartenfehler"))}map.on("idle",ok);map.on("error",bad);if(map.loaded())finish()})}
+let adapter,ready=false,busy=false,marker=null,report=null;
+function reportView(){$("debug").textContent=JSON.stringify(report,null,2)}
+function clearOverlay(){const m=adapter.map;for(const id of ["geo-fill","geo-line"])if(m.getLayer(id))m.removeLayer(id);
+if(m.getSource("geo"))m.removeSource("geo")}
+function setBusy(v){busy=v;$("detect").disabled=v}
+async function detect(){
+if(!ready||busy)return;setBusy(true);const e=examples[Number($("case").value)],z=Number($("zoom").value),m=adapter.map;
+report={version:4,object:e[0],lat:e[1],lng:e[2],zoom:z,when:new Date().toISOString(),candidates:[],lookup:null};
+$("matches").textContent="Erkenne …";$("geometry").textContent="Noch kein Abruf.";
+try{clearOverlay();m.jumpTo({center:[e[2],e[1]],zoom:z});if(marker)marker.remove();
+marker=new gl.Marker({color:"#d45278"}).setLngLat([e[2],e[1]]).addTo(m);
+await waitIdle(m);const p=m.project([e[2],e[1]]),hits=m.queryRenderedFeatures([p.x,p.y]).filter(f=>["water","park","landuse","landcover"].includes(f.sourceLayer));
+const entries=new Map();
+for(const f of hits){const osm=osmFromId(f.id);if(!osm||entries.has(f.id))continue;
+entries.set(f.id,{featureId:f.id,osm,sourceLayer:f.sourceLayer,class:f.properties?.class||null,
+propertyId:f.properties?.id??null,names:{local:f.properties?.name||null,
+international:f.properties?.name_int||null,de:f.properties?.["name:de"]||f.properties?.name_de||null,
+en:f.properties?.["name:en"]||f.properties?.name_en||null}})}
+for(const layer of ["water_name","park"]){
+try{for(const f of m.querySourceFeatures("openmaptiles",{sourceLayer:layer})){
+const v=entries.get(f.id),p=f.properties||{};if(!v)continue;
+v.names.local ||=p.name||null;v.names.international ||=p.name_int||null;
+v.names.de ||=p["name:de"]||p.name_de||null;v.names.en ||=p["name:en"]||p.name_en||null;
+}}catch(err){report["joinError_"+layer]=String(err?.message||err)}}
+report.candidates=[...entries.values()];
+$("matches").innerHTML=report.candidates.length?report.candidates.map((x,i)=>{
+const name=x.names.de||x.names.en||x.names.international||x.names.local||"Ohne Namen";
+return '<div class="item"><b>'+esc(name)+'</b><div>'+esc(x.sourceLayer)+' · '+esc(x.class)+'</div><small>'+
+esc(x.osm.type)+'/'+x.osm.id+'</small><div><button data-index="'+i+'">Mit Nominatim auflösen</button></div></div>';
+}).join(""):"Keine passende Fläche erkannt.";
+$("matches").querySelectorAll("button").forEach(b=>b.onclick=()=>lookup(Number(b.dataset.index)));
+status(report.candidates.length+" Flächen erkannt. Wähle ein Objekt für den Nominatim-Lookup.");
+}catch(err){report.error=String(err?.message||err);status("Erkennung fehlgeschlagen: "+report.error)}
+reportView();setBusy(false);
+}
+async function lookup(index){
+if(busy||!report?.candidates[index])return;setBusy(true);
+const candidate=report.candidates[index],prefix=candidate.osm.type==="way"?"W":"R";
+const oid=prefix+candidate.osm.id,params=new URLSearchParams({osm_ids:oid,format:"json",polygon_geojson:"1",polygon_threshold:"0.001",addressdetails:"0",accept_language:"de,en"});
+const url="https://nominatim.openstreetmap.org/lookup?"+params.toString(),t0=performance.now();
+const outcome={osmId:oid,url,startedAt:new Date().toISOString(),cached:false};
+$("geometry").textContent="Lade Nominatim …";
+try{
+const key="pin2map-nominatim-v4:"+oid+":0.001";
+let data=null;
+try{const saved=JSON.parse(localStorage.getItem(key)||"null");if(saved&&Date.now()-saved.time<7*86400000){data=saved.data;outcome.cached=true}}catch(_){}
+if(!data){
+ const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),25000);
+ let response;try{response=await fetch(url,{headers:{Accept:"application/json"},signal:ac.signal})}finally{clearTimeout(timer)}
+ outcome.http=response.status;if(!response.ok)throw new Error("HTTP "+response.status);
+ const raw=await response.text();outcome.bytes=new Blob([raw]).size;if(outcome.bytes>8e6)throw new Error("Nominatim-Antwort über 8 MB");
+ data=JSON.parse(raw);try{localStorage.setItem(key,JSON.stringify({time:Date.now(),data}))}catch(_){}
+}
+const place=Array.isArray(data)?data.find(p=>String(p.osm_id)===String(candidate.osm.id)&&p.osm_type===candidate.osm.type):null;
+if(!place)throw new Error("Nominatim liefert das angefragte OSM-Objekt nicht");
+outcome.displayName=place.display_name||null;outcome.geojsonType=place.geojson?.type||null;outcome.vertices=countVertices(place.geojson);
+outcome.containsClick=contains([report.lng,report.lat],place.geojson);
+if(!["Polygon","MultiPolygon"].includes(place.geojson?.type))throw new Error("Nominatim liefert kein Flächen-GeoJSON");
+clearOverlay();adapter.map.addSource("geo",{type:"geojson",data:{type:"Feature",properties:{name:outcome.displayName},geometry:place.geojson}});
+adapter.map.addLayer({id:"geo-fill",type:"fill",source:"geo",paint:{"fill-color":"#7545ae","fill-opacity":0.22}});
+adapter.map.addLayer({id:"geo-line",type:"line",source:"geo",paint:{"line-color":"#6237a0","line-width":2}});
+$("geometry").innerHTML="<b>"+esc(outcome.displayName)+"</b><p>"+esc(outcome.geojsonType)+" · "+outcome.vertices+
+" Punkte · Klick im Polygon: <b>"+outcome.containsClick+"</b> · Cache: "+outcome.cached+"</p>";
+status("Nominatim-Geometrie erfolgreich dargestellt.");
+}catch(err){outcome.error=String(err?.message||err);$("geometry").textContent="Abruf fehlgeschlagen: "+outcome.error;status("Nominatim-Lookup fehlgeschlagen.")}
+outcome.elapsedMs=Math.round(performance.now()-t0);report.lookup=outcome;reportView();setBusy(false);
+}
+$("detect").onclick=detect;
+$("export").onclick=()=>{if(!report)return status("Zunächst eine Abfrage starten.");
+const b=new Blob([JSON.stringify({test:"pin2map OpenFreeMap → Nominatim lookup V4",result:report},null,2)],{type:"application/json"});
+const url=URL.createObjectURL(b),a=document.createElement("a");a.href=url;a.download="pin2map-nominatim-v4.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+try{adapter=window.Pin2MapMapLibreAdapter.mount("map",{center:{lat:-1.776754,lng:29.09729},zoom:12},gl,"https://tiles.openfreemap.org/styles/liberty");
+adapter.map.once("load",()=>{ready=true;status("Bereit. Fläche erkennen.")});
+adapter.map.on("error",e=>{if(!busy)status("Kartenfehler: "+String(e?.error?.message||"Unbekannt"))});$("case").value="2";
+}catch(err){status("Initialisierungsfehler: "+String(err?.message||err))}
+</script></body></html>
