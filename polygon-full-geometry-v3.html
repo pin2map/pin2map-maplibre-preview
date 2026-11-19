@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pin2map · Polygon-End-to-End-Test V3</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+<script defer src="https://unpkg.com/osmtogeojson@3.0.0/osmtogeojson.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#182b48;font:14px system-ui,sans-serif}
+header{background:#172b49;color:white;padding:12px 16px}header strong{font-size:17px}
+main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(340px,440px);height:calc(100dvh - 52px)}
+#map{min-height:300px}aside{padding:12px;overflow:auto}
+.panel{border:1px solid #d7dfec;border-radius:9px;padding:12px;background:white;margin-bottom:10px}
+h2{font-size:16px;margin:0 0 9px}select,button{font:inherit;padding:9px;border-radius:7px}
+select{max-width:100%;border:1px solid #bac5d5}button{border:0;background:#684ba1;color:white;cursor:pointer;margin:5px 5px 5px 0}
+button:disabled{opacity:.5}pre{white-space:pre-wrap;word-break:break-word;overflow:auto;font:11px ui-monospace,monospace;max-height:35vh}
+#status{font-weight:600}small{color:#536581}.candidate{margin:9px 0;padding:9px;border:1px solid #dce3ed;border-radius:7px}
+.candidate button{padding:6px 9px}a{color:#3050a0}
+@media(max-width:790px){main{display:flex;flex-direction:column;height:auto}#map{height:48dvh}aside{overflow:visible}}
+</style></head><body>
+<header><strong>pin2map · Polygon-End-to-End-Test V3</strong> · OpenFreeMap → OSM → GeoJSON</header>
+<main><div id="map"></div><aside>
+<div class="panel"><h2>1 · Referenz wählen und erkennen</h2>
+<select id="case" aria-label="Testobjekt"></select>
+<label>Zoom <select id="zoom"><option>7</option><option>10</option><option selected>12</option><option>14</option></select></label>
+<div><button id="detect">Objekt erkennen</button><button id="export">JSON exportieren</button></div>
+<p id="status" role="status">Initialisiere Karte …</p>
+<small>Der Abruf erfolgt erst nach einem separaten Klick auf „Originalgeometrie laden“. Es werden keine automatisierten Massenabfragen durchgeführt. Öffentliche OSM-API nur für sparsame Tests.</small></div>
+<div class="panel"><h2>2 · Erkannte Kandidaten</h2><div id="candidates">Noch keine Erkennung.</div></div>
+<div class="panel"><h2>3 · Prüfung der Originalgeometrie</h2><div id="geometry">Noch kein Abruf.</div></div>
+<div class="panel"><h2>Diagnosedaten</h2><pre id="debug">Noch keine Ergebnisse.</pre></div>
+</aside></main>
+<script type="module">
+import * as gl from "https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs";
+import "./map-adapter-maplibre.js?v=3";
+const cases=[
+["Enoggera Reservoir",-27.445287,152.918615],
+["Marradong Mining Area",-32.838924,116.434307],
+["Lake Kivu",-1.776754,29.09729],
+["Farihy Ihotry",-21.913108,43.68679],
+["Namib-Naukluft National Park",-24.352101,15.117188],
+["Lago Villarrica",-39.230658,-72.071686],
+["Torres del Paine",-50.929007,-72.778931],
+["Tonlé Sap",12.897489,103.94165]
+];
+const $=id=>document.getElementById(id),status=s=>$("status").textContent=s;
+const safe=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+cases.forEach((c,i)=>{const opt=document.createElement("option");opt.value=i;opt.textContent=c[0];$("case").append(opt)});
+let adapter,ready=false,busy=false,result=null,marker=null;
+function decode(id){if(!Number.isSafeInteger(id)||id<=0)return null;const type=({1:"node",2:"way",3:"relation"})[id%10];return type?{type,id:Math.floor(id/10)}:null}
+function waitIdle(map,timeout=22000){return new Promise((resolve,reject)=>{
+let settled=false;const timer=setTimeout(()=>finish(new Error("Ladezeit überschritten")),timeout);
+function finish(e){if(settled)return;settled=true;clearTimeout(timer);map.off("idle",onIdle);map.off("error",onError);e?reject(e):resolve()}
+function onIdle(){finish()}function onError(e){finish(e?.error||new Error("MapLibre-Fehler"))}
+map.on("idle",onIdle);map.on("error",onError);if(map.loaded())finish();
+})}
+function clearGeometry(){const map=adapter.map;if(map.getLayer("osm-fill"))map.removeLayer("osm-fill");if(map.getLayer("osm-line"))map.removeLayer("osm-line");if(map.getSource("osm-geometry"))map.removeSource("osm-geometry")}
+function publish(){ $("debug").textContent=JSON.stringify(result,null,2) }
+async function detect(){
+if(!ready||busy)return;busy=true;$("detect").disabled=true;
+const c=cases[Number($("case").value)],zoom=Number($("zoom").value),map=adapter.map;
+result={version:3,object:c[0],lat:c[1],lng:c[2],zoom,when:new Date().toISOString(),candidates:[],geometry:null};
+$("geometry").textContent="Noch kein Abruf."; $("candidates").textContent="Suche …";
+try{
+clearGeometry();map.jumpTo({center:[c[2],c[1]],zoom});
+if(marker)marker.remove();marker=new gl.Marker({color:"#d34479"}).setLngLat([c[2],c[1]]).addTo(map);
+await waitIdle(map);
+const p=map.project([c[2],c[1]]);
+const hits=map.queryRenderedFeatures([p.x,p.y]).filter(f=>["water","park","landuse","landcover"].includes(f.sourceLayer));
+const all=new Map();for(const f of hits)if(!all.has(f.id)){const osm=decode(f.id);if(osm&&osm.type!=="node")all.set(f.id,{
+featureId:f.id,osm,layer:f.sourceLayer,class:f.properties?.class||null,
+propertyId:f.properties?.id??null,
+names:{local:f.properties?.name||null,intl:f.properties?.name_int||null,
+de:f.properties?.["name:de"]||f.properties?.name_de||null,
+en:f.properties?.["name:en"]||f.properties?.name_en||null}})}
+const candidates=[...all.values()];
+for(const sourceLayer of ["water_name","park"]){
+try{for(const f of map.querySourceFeatures("openmaptiles",{sourceLayer})){
+ const match=all.get(f.id);if(!match)continue;
+ const p=f.properties||{};if(!match.names.local)match.names.local=p.name||null;
+ if(!match.names.intl)match.names.intl=p.name_int||null;
+ if(!match.names.de)match.names.de=p["name:de"]||p.name_de||null;
+ if(!match.names.en)match.names.en=p["name:en"]||p.name_en||null;
+}}catch(_){}}
+result.candidates=candidates;
+$("candidates").innerHTML=candidates.length?candidates.map((f,i)=>{
+const name=f.names.de||f.names.en||f.names.intl||f.names.local||"Ohne Namen";
+return '<div class="candidate"><b>'+safe(name)+'</b><div>'+safe(f.layer)+" · "+safe(f.class||"")+'</div><small>OSM '+safe(f.osm.type)+'/'+f.osm.id+'</small><div><button data-candidate="'+i+'">Originalgeometrie laden</button></div></div>'
+}).join(""):"Keine relevante Fläche an der Testkoordinate gefunden.";
+$("candidates").querySelectorAll("button[data-candidate]").forEach(btn=>btn.addEventListener("click",()=>load(Number(btn.dataset.candidate))));
+status("Erkannt: "+candidates.length+" Kandidaten. Originalgeometrie kann einzeln geladen werden.");
+}catch(e){result.error=String(e?.message||e);status("Erkennungsfehler: "+result.error)}
+publish();busy=false;$("detect").disabled=false;
+}
+function ringContains(point,ring){let inside=false;const [x,y]=point;for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+const [xi,yi]=ring[i],[xj,yj]=ring[j];if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)inside=!inside
+}return inside}
+function polygonContains(point,rings){return rings?.length>0&&ringContains(point,rings[0])&&!rings.slice(1).some(r=>ringContains(point,r))}
+function contains(point,geometry){if(geometry?.type==="Polygon")return polygonContains(point,geometry.coordinates);
+if(geometry?.type==="MultiPolygon")return geometry.coordinates.some(r=>polygonContains(point,r));return false}
+function vertices(geom){let n=0;function walk(v){if(!Array.isArray(v))return;if(typeof v[0]==="number"){n++;return}for(const x of v)walk(x)}walk(geom.coordinates);return n}
+async function load(index){
+if(busy||!result?.candidates[index])return;busy=true;$("detect").disabled=true;
+const item=result.candidates[index],{type,id}=item.osm,started=performance.now();
+const url="https://api.openstreetmap.org/api/0.6/"+type+"/"+id+"/full.json";
+const outcome={url,type,id,startedAt:new Date().toISOString()};
+$("geometry").textContent="Lade "+type+"/"+id+" …";
+try{
+const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
+let response;try{response=await fetch(url,{headers:{"Accept":"application/json"},signal:controller.signal})}finally{clearTimeout(timer)}
+outcome.http=response.status;outcome.contentLength=response.headers.get("content-length");
+if(!response.ok)throw new Error("OSM-API HTTP "+response.status);
+if(Number(outcome.contentLength)>16e6)throw new Error("Antwort zu groß (>16 MB), Abruf abgebrochen");
+const content=await response.text();outcome.bytes=new Blob([content]).size;
+if(outcome.bytes>16e6)throw new Error("Antwort größer als 16 MB");
+const json=JSON.parse(content);
+if(typeof window.osmtogeojson!=="function")throw new Error("GeoJSON-Konverter vom CDN nicht geladen");
+const geojson=window.osmtogeojson(json,{flatProperties:true});
+const objectId=type+"/"+id;
+const target=(geojson.features||[]).find(f=>String(f.id)===objectId);
+if(!target)throw new Error("Das angefragte OSM-Objekt fehlt im konvertierten GeoJSON");
+outcome.geojsonType=target.geometry?.type;outcome.vertices=vertices(target.geometry);
+outcome.tainted=Boolean(target.properties?.tainted);
+outcome.containsClick=contains([result.lng,result.lat],target.geometry);
+outcome.name=target.properties?.name||item.names.intl||item.names.en||null;
+if(!["Polygon","MultiPolygon"].includes(target.geometry?.type))throw new Error("Das OSM-Objekt ist kein Polygon");
+clearGeometry();
+adapter.map.addSource("osm-geometry",{type:"geojson",data:{type:"FeatureCollection",features:[target]}});
+adapter.map.addLayer({id:"osm-fill",type:"fill",source:"osm-geometry",paint:{"fill-color":"#7d4bc1","fill-opacity":0.22}});
+adapter.map.addLayer({id:"osm-line",type:"line",source:"osm-geometry",paint:{"line-color":"#6734a9","line-width":3}});
+$("geometry").innerHTML='<b>'+safe(outcome.name||objectId)+'</b><p>Geometrie: '+safe(outcome.geojsonType)+
+' · Punkte: '+outcome.vertices+' · Klick im Polygon: <b>'+String(outcome.containsClick)+'</b>'+
+' · Unvollständig: '+String(outcome.tainted)+'</p><small>Originalgeometrie auf der Karte lila dargestellt.</small>';
+status("Geometrie geladen: "+type+"/"+id);
+}catch(e){outcome.error=String(e?.message||e);$("geometry").textContent="Abruf nicht erfolgreich: "+outcome.error;status("Fehler beim Geometrieabruf.")}
+outcome.elapsedMs=Math.round(performance.now()-started);result.geometry=outcome;publish();
+busy=false;$("detect").disabled=false;
+}
+$("detect").onclick=detect;
+$("export").onclick=()=>{if(!result)return status("Zuerst einen Test ausführen.");
+const blob=new Blob([JSON.stringify({test:"pin2map polygon full-geometry V3",result},null,2)],{type:"application/json"});
+const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="pin2map-polygon-v3.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+try{
+adapter=window.Pin2MapMapLibreAdapter.mount("map",{center:{lat:-1.776754,lng:29.09729},zoom:12},gl,"https://tiles.openfreemap.org/styles/liberty");
+adapter.map.on("load",()=>{ready=true;status("Bereit. Wähle zunächst ein Objekt.")});
+adapter.map.on("error",e=>{if(!busy)status("Kartenfehler: "+String(e?.error?.message||"Unbekannt"))});
+$("case").value="2";
+}catch(e){status("Initialisierungsfehler: "+String(e?.message||e))}
+</script></body></html>
