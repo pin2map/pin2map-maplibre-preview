@@ -2,7 +2,7 @@
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>pin2map · Polygon-End-to-End-Test V3</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.css">
-<script defer src="https://unpkg.com/osmtogeojson@3.0.0/osmtogeojson.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/osmtogeojson@3.0.0-beta.5/osmtogeojson.js"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#182b48;font:14px system-ui,sans-serif}
 header{background:#172b49;color:white;padding:12px 16px}header strong{font-size:17px}
@@ -108,9 +108,9 @@ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),2
 let response;try{response=await fetch(url,{headers:{"Accept":"application/json"},signal:controller.signal})}finally{clearTimeout(timer)}
 outcome.http=response.status;outcome.contentLength=response.headers.get("content-length");
 if(!response.ok)throw new Error("OSM-API HTTP "+response.status);
-if(Number(outcome.contentLength)>16e6)throw new Error("Antwort zu groß (>16 MB), Abruf abgebrochen");
+if(Number(outcome.contentLength)>32e6)throw new Error("Antwort zu groß (>32 MB), Abruf abgebrochen");
 const content=await response.text();outcome.bytes=new Blob([content]).size;
-if(outcome.bytes>16e6)throw new Error("Antwort größer als 16 MB");
+if(outcome.bytes>32e6)throw new Error("Antwort größer als 32 MB");
 const json=JSON.parse(content);
 if(typeof window.osmtogeojson!=="function")throw new Error("GeoJSON-Konverter vom CDN nicht geladen");
 const geojson=window.osmtogeojson(json,{flatProperties:true});
