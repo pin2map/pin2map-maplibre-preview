@@ -4,7 +4,7 @@ const CACHE='pin2map-vector-preview-v1';
 const TILE_CACHE='pin2map-vector-preview-tiles-v1';
 const TILE_META_CACHE='pin2map-vector-preview-metadata-v1';
 const FALLBACK_TILE_TTL=7*24*60*60*1000; // Provider minimum when response headers are inaccessible.
-const CORE=['./','./index.html','./app.js','./styles.css','./vector-detection.js','./manifest.webmanifest'];
+const CORE=['./','./index.html','./app.js','./styles.css','./manifest.webmanifest'];
 const LEAFLET=[
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
@@ -94,7 +94,7 @@ self.addEventListener('install',event=>{
 });
 self.addEventListener('activate',event=>{
   event.waitUntil(caches.keys().then(keys=>Promise.all(
-    keys.filter(name=>name.startsWith('pin2map-new-')&&name!==CACHE)
+    keys.filter(name=>name.startsWith('pin2map-vector-preview-')&&name!==CACHE)
       .map(name=>caches.delete(name))
   )).then(()=>self.clients.claim()));
 });
