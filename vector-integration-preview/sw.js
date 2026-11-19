@@ -1,6 +1,6 @@
 /* pin2map NEW PWA: offline app shell and on-demand, previously viewed OSM tiles.
    Tile policy: no prefetch, bulk download or offline-area download. */
-const CACHE='pin2map-vector-preview-v1';
+const CACHE='pin2map-vector-preview-v2';
 const TILE_CACHE='pin2map-vector-preview-tiles-v1';
 const TILE_META_CACHE='pin2map-vector-preview-metadata-v1';
 const FALLBACK_TILE_TTL=7*24*60*60*1000; // Provider minimum when response headers are inaccessible.
@@ -94,7 +94,7 @@ self.addEventListener('install',event=>{
 });
 self.addEventListener('activate',event=>{
   event.waitUntil(caches.keys().then(keys=>Promise.all(
-    keys.filter(name=>name.startsWith('pin2map-vector-preview-')&&name!==CACHE)
+    keys.filter(name=>name.startsWith('pin2map-new-')&&name!==CACHE)
       .map(name=>caches.delete(name))
   )).then(()=>self.clients.claim()));
 });
